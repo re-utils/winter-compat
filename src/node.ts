@@ -1,5 +1,10 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
-import { bufferToUint8Array, joinHeaders, methodNotImplemented } from './utils.ts';
+import type { IncomingMessage } from 'node:http';
+import {
+  bufferToUint8Array,
+  joinHeaders,
+  methodNotImplemented,
+} from './utils.ts';
+import { Readable } from 'node:stream';
 
 const readBody = async (req: TRequest): Promise<Buffer<ArrayBuffer>> => {
   if (req._bodyStream != null) {
@@ -21,23 +26,26 @@ const readBody = async (req: TRequest): Promise<Buffer<ArrayBuffer>> => {
 
   return new Promise<Buffer<ArrayBuffer>>((res, rej) => {
     const chunks: any[] = [];
+    const bodyStream = req._req;
 
-    req._req
+    bodyStream
       .on('data', (chunk) => {
         chunks.push(chunk);
-      })
-      .once('error', (error) => {
-        req._abortController?.abort();
-        rej(error);
-      })
-      .once('close', () => {
-        req._abortController?.abort();
       })
       .once('end', () => {
         res(Buffer.concat(chunks));
       });
+
+    if (req._abort == null) bodyStream.once('error', rej);
+    else
+      bodyStream
+        .once('error', (err) => {
+          req._abort!();
+          rej(err);
+        })
+        .once('close', req._abort);
   });
-}
+};
 
 class TRequestHeaders implements Headers {
   _req: IncomingMessage;
@@ -129,14 +137,12 @@ export const requestIP = (req: TRequest): string | undefined =>
 
 export class TRequest implements Request {
   readonly _req: IncomingMessage;
-  readonly _res: ServerResponse;
 
   readonly url: string;
   readonly method: string;
 
-  constructor(req: IncomingMessage, res: ServerResponse) {
+  constructor(req: IncomingMessage) {
     this._req = req;
-    this._res = res;
 
     // Don't lazy load common stuff
     this.url =
@@ -146,20 +152,24 @@ export class TRequest implements Request {
     this.method = this._req.method!;
   }
 
-  _abortController?: AbortController;
+  _abort?: () => void;
+  #signal?: AbortSignal;
   get signal(): AbortSignal {
-    if (this._abortController != null) return this._abortController.signal;
+    if (this.#signal != null) return this.#signal;
 
     const controller = new AbortController();
-    this._req.once('close', () => {
-      controller.abort();
-    });
+    this._req.once(
+      'close',
+      (this._abort = () => {
+        controller.abort();
+      }),
+    );
 
-    return (this._abortController = controller).signal;
+    return (this.#signal = controller.signal);
   }
 
   clone(): Request {
-    return new TRequest(this._req, this._res);
+    return new TRequest(this._req);
   }
 
   #headers?: TRequestHeaders;
@@ -180,7 +190,7 @@ export class TRequest implements Request {
     ) {
       const contentLength = this._req.headers['content-length'];
       if (typeof contentLength === 'string' && Number.isInteger(+contentLength))
-        return this.#bodyUsed = false;
+        return (this.#bodyUsed = false);
 
       const transferEncoding = this._req.headers['transfer-encoding'];
       if (typeof transferEncoding === 'string')
@@ -189,10 +199,10 @@ export class TRequest implements Request {
           i < parts.length;
           i++
         )
-          if (parts[i].trim() === 'chunked') return this.#bodyUsed = false;
+          if (parts[i].trim() === 'chunked') return (this.#bodyUsed = false);
     }
 
-    return this.#bodyUsed = true;
+    return (this.#bodyUsed = true);
   }
 
   _bodyStream?: ReadableStream<Uint8Array<ArrayBuffer>>;
@@ -202,24 +212,11 @@ export class TRequest implements Request {
     if (this.bodyUsed) return null;
     this.#bodyUsed = true;
 
-    return (this._bodyStream = new ReadableStream({
-      start: (controller) => {
-        this._req
-          .on('data', (chunk) => {
-            controller.enqueue(chunk);
-          })
-          .once('error', (error) => {
-            controller.error(error);
-            this._abortController?.abort();
-          })
-          .once('close', () => {
-            this._abortController?.abort();
-          })
-          .once('end', () => {
-            controller.close();
-          });
-      },
-    }));
+    const bodyStream = this._req;
+    if (this._abort != null)
+      bodyStream.once('error', this._abort).once('close', this._abort);
+
+    return (this._bodyStream = Readable.toWeb(bodyStream) as any);
   }
 
   async bytes(): Promise<Uint8Array<ArrayBuffer>> {
@@ -232,13 +229,13 @@ export class TRequest implements Request {
 
   async blob(): Promise<Blob> {
     return new Blob([await readBody(this)], {
-      type: this._req.headers['content-type']
+      type: this._req.headers['content-type'],
     });
   }
 
   async formData(): Promise<FormData> {
     return new Response(await readBody(this), {
-      headers: this.headers
+      headers: this.headers,
     }).formData();
   }
 

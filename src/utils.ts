@@ -5,4 +5,7 @@ export const methodNotImplemented = (): never => {
 export const joinHeaders = (val: string | string[]): string =>
   typeof val === 'string' ? val : val.join(', ');
 
-export const bufferToUint8Array = (buf: Buffer<ArrayBuffer>): Uint8Array<ArrayBuffer> => new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+export const bufferToUint8Array = (
+  buf: Buffer<ArrayBuffer>,
+): Uint8Array<ArrayBuffer> =>
+  new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
