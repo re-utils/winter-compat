@@ -86,7 +86,6 @@ export class TRequestHeaders implements Headers {
     name = name.toLowerCase();
 
     const val = this._req.headers[name];
-
     if (val == null) return null;
     if (typeof val === 'string') return val;
 
