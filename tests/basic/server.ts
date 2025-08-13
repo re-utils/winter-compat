@@ -13,7 +13,10 @@ const app = router(
   ],
 );
 
-serve({
-  fetch: compile(app),
-  port: 3000,
-}, () => console.log('App ready'));
+serve(
+  {
+    fetch: compile(app),
+    port: 3000,
+  },
+  () => console.log('App ready'),
+);

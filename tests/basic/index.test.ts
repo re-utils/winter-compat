@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { after } from 'node:test';
 
 const ARGS = {
-  node: ['--import', 'jiti/register']
+  node: ['--import', 'jiti/register'],
 };
 
 const start = (runtime: keyof typeof ARGS) => {
@@ -12,7 +12,7 @@ const start = (runtime: keyof typeof ARGS) => {
       console.time(label);
 
       const server = Bun.spawn([runtime, ...ARGS[runtime], './server.ts'], {
-        cwd: import.meta.dir
+        cwd: import.meta.dir,
       });
       after(() => server.kill());
       // Wait for the first console log
@@ -74,6 +74,6 @@ const start = (runtime: keyof typeof ARGS) => {
       });
     });
   });
-}
+};
 
 start('node');

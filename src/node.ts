@@ -31,16 +31,16 @@ export const readBody = async (
         })
         .once('end', () => {
           res(Buffer.concat(chunks));
-        });
-
-      if (req._abort == null) bodyStream.once('error', rej);
-      else
-        bodyStream
-          .once('error', (err) => {
-            req._abort!();
-            rej(err);
-          })
-          .once('close', req._abort);
+        })
+        .once(
+          'error',
+          req._abort == null
+            ? rej
+            : (err) => {
+                req._abort!();
+                rej(err);
+              },
+        );
     });
 
   const reader = req._bodyStream.getReader();
@@ -83,8 +83,14 @@ export class TRequestHeaders implements Headers {
   }
 
   get(name: string): string | null {
-    const val = this._req.headers[name.toLowerCase()];
-    return val == null ? null : joinHeaders(val);
+    name = name.toLowerCase();
+
+    const val = this._req.headers[name];
+
+    if (val == null) return null;
+    if (typeof val === 'string') return val;
+
+    return val.join(name === 'cookie' ? '; ' : ', ');
   }
 
   getAll(name: string): string[] {
@@ -219,7 +225,7 @@ export class NodeRequest implements Request {
 
     const bodyStream = this._req;
     if (this._abort != null)
-      bodyStream.once('error', this._abort).once('close', this._abort);
+      bodyStream.once('error', this._abort);
 
     return (this._bodyStream = Readable.toWeb(bodyStream) as any);
   }
@@ -240,7 +246,7 @@ export class NodeRequest implements Request {
 
   async formData(): Promise<FormData> {
     return new Response(await readBody(this), {
-      headers: this.headers,
+      headers: this._req.headers as Record<string, string>,
     }).formData();
   }
 
