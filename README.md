@@ -1,2 +1,11 @@
-# Compat
-A small compability layer for all runtimes.
+# winter-compat
+A small WinterCG server compability layer for all runtimes.
+
+```ts
+import { serve } from 'winter-compat';
+
+serve({
+  fetch: compile(app),
+  port: 3000,
+}, () => console.log('App ready'));
+```
