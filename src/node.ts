@@ -141,7 +141,7 @@ export class TRequest implements Request {
   readonly url: string;
   readonly method: string;
 
-  constructor(req: IncomingMessage) {
+  private constructor(req: IncomingMessage) {
     this._req = req;
 
     // Don't lazy load common stuff
