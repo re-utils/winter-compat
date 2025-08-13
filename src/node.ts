@@ -25,6 +25,8 @@ export const readBody = async (
       const chunks: any[] = [];
       const bodyStream = req._req;
 
+      if (req._abort != null) bodyStream.once('error', req._abort);
+
       bodyStream
         .on('data', (chunk) => {
           chunks.push(chunk);
@@ -32,15 +34,7 @@ export const readBody = async (
         .once('end', () => {
           res(Buffer.concat(chunks));
         })
-        .once(
-          'error',
-          req._abort == null
-            ? rej
-            : (err) => {
-                req._abort!();
-                rej(err);
-              },
-        );
+        .once('error', rej);
     });
 
   const reader = req._bodyStream.getReader();
@@ -223,8 +217,7 @@ export class NodeRequest implements Request {
     if (this.bodyUsed) return null;
 
     const bodyStream = this._req;
-    if (this._abort != null)
-      bodyStream.once('error', this._abort);
+    if (this._abort != null) bodyStream.once('error', this._abort);
 
     return (this._bodyStream = Readable.toWeb(bodyStream) as any);
   }
