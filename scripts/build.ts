@@ -9,7 +9,7 @@ import { cp, LIB, ROOT, SOURCE } from './utils.ts';
 if (existsSync(LIB)) rmSync(LIB, { recursive: true });
 
 // @ts-ignore
-const exports = (pkg.exports = {} as Record<string, string>);
+// const exports = (pkg.exports = {} as Record<string, string>);
 
 await Promise.all(
   [...new Bun.Glob('**/*.ts').scanSync(SOURCE)].map(async (path) => {
@@ -45,12 +45,12 @@ await Promise.all(
 
     if (transformed.declaration) {
       Bun.write(`${LIB}/${pathNoExt}.d.ts`, transformed.declaration);
-      exports[
-        pathNoExt === 'index'
-          ? '.'
-          : './' +
-            (pathNoExt.endsWith('/index') ? pathNoExt.slice(0, -6) : pathNoExt)
-      ] = './' + pathNoExt + (transformed.code === '' ? '.d.ts' : '.js');
+      // exports[
+      //   pathNoExt === 'index'
+      //     ? '.'
+      //     : './' +
+      //       (pathNoExt.endsWith('/index') ? pathNoExt.slice(0, -6) : pathNoExt)
+      // ] = './' + pathNoExt + (transformed.code === '' ? '.d.ts' : '.js');
     }
   }),
 );
