@@ -1,53 +1,61 @@
-import type { IncomingMessage } from 'node:http';
+import {
+  createServer,
+  type IncomingMessage,
+  type OutgoingHttpHeader,
+  type Server,
+  type ServerResponse,
+} from 'node:http';
+import { Readable } from 'node:stream';
+import type { ServeOptions } from './types.ts';
 import {
   bufferToUint8Array,
   joinHeaders,
   methodNotImplemented,
 } from './utils.ts';
-import { Readable } from 'node:stream';
 
-const readBody = async (req: TRequest): Promise<Buffer<ArrayBuffer>> => {
-  if (req._bodyStream != null) {
-    const reader = req._bodyStream.getReader();
-    const buffers: Uint8Array[] = [];
-
-    let val = await reader.read();
-    while (!val.done) {
-      buffers.push(val.value);
-      val = await reader.read();
-    }
-
-    return Buffer.concat(buffers);
-  }
-
+export const readBody = async (
+  req: NodeRequest,
+): Promise<Buffer<ArrayBuffer>> => {
   // Similar error to undici
   if (req.bodyUsed)
     throw new TypeError('Body is unusable: Body has already been read');
 
-  return new Promise<Buffer<ArrayBuffer>>((res, rej) => {
-    const chunks: any[] = [];
-    const bodyStream = req._req;
+  if (req._bodyStream == null)
+    return new Promise<Buffer<ArrayBuffer>>((res, rej) => {
+      const chunks: any[] = [];
+      const bodyStream = req._req;
 
-    bodyStream
-      .on('data', (chunk) => {
-        chunks.push(chunk);
-      })
-      .once('end', () => {
-        res(Buffer.concat(chunks));
-      });
-
-    if (req._abort == null) bodyStream.once('error', rej);
-    else
       bodyStream
-        .once('error', (err) => {
-          req._abort!();
-          rej(err);
+        .on('data', (chunk) => {
+          chunks.push(chunk);
         })
-        .once('close', req._abort);
-  });
+        .once('end', () => {
+          res(Buffer.concat(chunks));
+        });
+
+      if (req._abort == null) bodyStream.once('error', rej);
+      else
+        bodyStream
+          .once('error', (err) => {
+            req._abort!();
+            rej(err);
+          })
+          .once('close', req._abort);
+    });
+
+  const reader = req._bodyStream.getReader();
+  const buffers: Uint8Array[] = [];
+
+  let val = await reader.read();
+  while (!val.done) {
+    buffers.push(val.value);
+    val = await reader.read();
+  }
+
+  return Buffer.concat(buffers);
 };
 
-class TRequestHeaders implements Headers {
+export class TRequestHeaders implements Headers {
   _req: IncomingMessage;
 
   getSetCookie: any;
@@ -92,7 +100,7 @@ class TRequestHeaders implements Headers {
     const headers = this._req.headers;
     const result: Record<string, string> = {};
     for (const key in headers)
-      if (headers[key] != null) result[key] = joinHeaders(headers[key]!);
+      if (headers[key] != null) result[key] = joinHeaders(headers[key]);
     return result;
   }
 
@@ -103,7 +111,7 @@ class TRequestHeaders implements Headers {
     const headers = this._req.headers;
     for (const key in headers)
       if (headers[key] != null)
-        cb.call(thisArg, joinHeaders(headers[key]!), key, this as any);
+        cb.call(thisArg, joinHeaders(headers[key]), key, this as any);
   }
 
   *keys(): HeadersIterator<string> {
@@ -119,11 +127,9 @@ class TRequestHeaders implements Headers {
 
   *entries(): HeadersIterator<[string, string]> {
     const headers = this._req.headers;
-    const notHttp2 = this._req.httpVersion !== '2.0';
 
     for (const key in headers) {
-      if (notHttp2 && headers[key] == null)
-        yield [key, joinHeaders(headers[key]!)];
+      if (headers[key] != null) yield [key, joinHeaders(headers[key])];
     }
   }
 
@@ -132,16 +138,13 @@ class TRequestHeaders implements Headers {
   }
 }
 
-export const requestIP = (req: TRequest): string | undefined =>
-  req._req.socket.remoteAddress;
-
-export class TRequest implements Request {
+export class NodeRequest implements Request {
   readonly _req: IncomingMessage;
 
   readonly url: string;
   readonly method: string;
 
-  private constructor(req: IncomingMessage) {
+  constructor(req: IncomingMessage) {
     this._req = req;
 
     // Don't lazy load common stuff
@@ -169,7 +172,7 @@ export class TRequest implements Request {
   }
 
   clone(): Request {
-    return new TRequest(this._req);
+    return new NodeRequest(this._req);
   }
 
   #headers?: TRequestHeaders;
@@ -180,26 +183,30 @@ export class TRequest implements Request {
   #bodyUsed?: boolean;
   get bodyUsed(): boolean {
     if (this.#bodyUsed != null) return this.#bodyUsed;
-    const method = this.method;
-
-    if (
-      method === 'PATCH' ||
-      method === 'POST' ||
-      method === 'PUT' ||
-      method === 'DELETE'
-    ) {
-      const contentLength = this._req.headers['content-length'];
-      if (typeof contentLength === 'string' && Number.isInteger(+contentLength))
-        return (this.#bodyUsed = false);
-
-      const transferEncoding = this._req.headers['transfer-encoding'];
-      if (typeof transferEncoding === 'string')
-        for (
-          let i = 0, parts = transferEncoding.split(',');
-          i < parts.length;
-          i++
+    if (this._bodyStream?.locked !== true) {
+      const method = this.method;
+      if (
+        method === 'PATCH' ||
+        method === 'POST' ||
+        method === 'PUT' ||
+        method === 'DELETE'
+      ) {
+        const contentLength = this._req.headers['content-length'];
+        if (
+          typeof contentLength === 'string' &&
+          Number.isInteger(+contentLength)
         )
-          if (parts[i].trim() === 'chunked') return (this.#bodyUsed = false);
+          return (this.#bodyUsed = false);
+
+        const transferEncoding = this._req.headers['transfer-encoding'];
+        if (typeof transferEncoding === 'string')
+          for (
+            let i = 0, parts = transferEncoding.split(',');
+            i < parts.length;
+            i++
+          )
+            if (parts[i].trim() === 'chunked') return (this.#bodyUsed = false);
+      }
     }
 
     return (this.#bodyUsed = true);
@@ -208,9 +215,7 @@ export class TRequest implements Request {
   _bodyStream?: ReadableStream<Uint8Array<ArrayBuffer>>;
   get body(): ReadableStream<Uint8Array<ArrayBuffer>> | null {
     if (this._bodyStream != null) return this._bodyStream;
-
     if (this.bodyUsed) return null;
-    this.#bodyUsed = true;
 
     const bodyStream = this._req;
     if (this._abort != null)
@@ -240,7 +245,7 @@ export class TRequest implements Request {
   }
 
   async json(): Promise<any> {
-    return (await readBody(this)).toJSON();
+    return JSON.parse((await readBody(this)).toString());
   }
 
   async text(): Promise<string> {
@@ -292,3 +297,50 @@ export class TRequest implements Request {
     methodNotImplemented();
   }
 }
+
+export const sendResponse = (nodeRes: ServerResponse, res: any): void => {
+  if (res instanceof Response) {
+    // Write headers
+    const headers: OutgoingHttpHeader[] = [];
+    for (const pair of res.headers.entries()) {
+      if (pair[0] === 'set-cookie')
+        for (
+          let i = 0, cookies = res.headers.getSetCookie();
+          i < cookies.length;
+          i++
+        )
+          headers.push(['set-cookie', cookies[i]]);
+      else headers.push(pair);
+    }
+    nodeRes.writeHead(res.status, res.statusText, headers);
+
+    // Write body
+    if (res.body != null) {
+      if (nodeRes.destroyed) res.body.cancel();
+      else Readable.fromWeb(res.body as any).pipe(nodeRes);
+    } else nodeRes.end();
+  } else {
+    // Matching Bun behavior ig
+    nodeRes.statusCode = 204;
+    nodeRes.end();
+  }
+};
+
+export const sendResponseAsync = async (
+  nodeRes: ServerResponse,
+  res: Promise<any>,
+): Promise<void> => {
+  sendResponse(nodeRes, await res);
+};
+
+export const requestIP = (req: NodeRequest): string | undefined =>
+  req._req.socket.remoteAddress;
+
+export const serve = (options: ServeOptions, ready?: () => any): Server => {
+  const { fetch, port, hostname } = options;
+
+  return createServer((req, res) => {
+    const webRes = fetch(new NodeRequest(req));
+    (webRes instanceof Promise ? sendResponseAsync : sendResponse)(res, webRes);
+  }).listen(port, hostname, ready);
+};
