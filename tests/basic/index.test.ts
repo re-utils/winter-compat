@@ -41,6 +41,12 @@ const start = (runtime: keyof typeof ARGS) => {
         expect(res.status).toBe(204);
         expect(await res.text()).toBe('');
       });
+
+      test('ip', async () => {
+        const res = await fetch(URL + '/ip');
+        expect(res.status).toBe(200);
+        expect(await res.text()).toBe('::1');
+      });
     });
 
     describe('read body', () => {

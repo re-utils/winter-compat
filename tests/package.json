@@ -1,6 +1,0 @@
-{
-  "type": "module",
-  "dependencies": {
-    "winter-compat": "../lib"
-  }
-}

@@ -1,5 +1,5 @@
 import { compile, handle, router } from '@mapl/web';
-import { requestIP, serve } from 'winter-compat';
+import { requestIP, serve } from 'winter-compat-build';
 
 const app = router(
   [],
