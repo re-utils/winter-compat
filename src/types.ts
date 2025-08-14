@@ -5,5 +5,5 @@ export interface ServeOptions {
 }
 
 export declare const serve: (options: ServeOptions) => any;
-export declare const requestIP: (req: Request) => string | undefined | null;
+export declare const requestIP: (req: Request) => string | undefined;
 export declare const waitUntil: (promise: Promise<any>) => void;

@@ -5,7 +5,7 @@ export interface BunRequest extends Request {
   readonly _server: Bun.Server;
 }
 
-export const requestIP = (req: BunRequest): string | undefined | null =>
+export const requestIP = (req: BunRequest): string | undefined =>
   req._server.requestIP(req)?.address;
 
 export { noop as waitUntil } from './utils.ts';
