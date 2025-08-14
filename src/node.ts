@@ -6,6 +6,7 @@ import {
   type ServerResponse,
 } from 'node:http';
 import { Readable } from 'node:stream';
+import config from './config.ts';
 import type { ServeOptions } from './types.ts';
 import {
   bufferToUint8Array,
@@ -13,43 +14,66 @@ import {
   methodNotImplemented,
 } from './utils.ts';
 
-export const readBody = async (
+const EMPTY_BUF = Buffer.allocUnsafe(0);
+
+export const readBody = (
   req: NodeRequest,
-): Promise<Buffer<ArrayBuffer>> => {
+): Promise<Buffer<ArrayBuffer>> | Buffer<ArrayBuffer> => {
   // Similar error to undici
   if (req.bodyUsed)
     throw new TypeError('Body is unusable: Body has already been read');
+  // @ts-ignore
+  req.bodyUsed = true;
 
-  if (req._bodyStream == null)
-    return new Promise<Buffer<ArrayBuffer>>((res, rej) => {
-      const chunks: any[] = [];
-      const bodyStream = req._req;
+  return hasBody(req)
+    ? new Promise<Buffer<ArrayBuffer>>((res, rej) => {
+        let size = 0;
 
-      if (req._abort != null) bodyStream.once('error', req._abort);
+        const chunks: any[] = [];
+        const bodyStream = req._req;
 
-      bodyStream
-        .on('data', (chunk) => {
-          chunks.push(chunk);
-        })
-        .once('end', () => {
-          res(Buffer.concat(chunks));
-        })
-        .once('error', rej);
-    });
+        if (req._abort != null) bodyStream.once('error', req._abort);
 
-  const reader = req._bodyStream.getReader();
-  const buffers: Uint8Array[] = [];
-
-  let val = await reader.read();
-  while (!val.done) {
-    buffers.push(val.value);
-    val = await reader.read();
-  }
-
-  return Buffer.concat(buffers);
+        bodyStream
+          .on('data', (chunk) => {
+            if ((size += chunk.byteLength) <= config.maxRequestBodySize)
+              chunks.push(chunk);
+            else res(EMPTY_BUF);
+          })
+          .once('end', () => {
+            res(Buffer.concat(chunks));
+          })
+          .once('error', rej);
+      })
+    : EMPTY_BUF;
 };
 
-export class TRequestHeaders implements Headers {
+export const hasBody = (req: NodeRequest): boolean => {
+  const method = req.method;
+  if (
+    method === 'PATCH' ||
+    method === 'POST' ||
+    method === 'PUT' ||
+    method === 'DELETE'
+  ) {
+    const contentLength = req._req.headers['content-length'];
+    if (typeof contentLength === 'string' && Number.isInteger(+contentLength))
+      return true;
+
+    const transferEncoding = req._req.headers['transfer-encoding'];
+    if (typeof transferEncoding === 'string')
+      for (
+        let i = 0, parts = transferEncoding.split(',');
+        i < parts.length;
+        i++
+      )
+        if (parts[i].trim() === 'chunked') return true;
+  }
+
+  return false;
+};
+
+export class RequestHeaders implements Headers {
   _req: IncomingMessage;
 
   getSetCookie: any;
@@ -142,6 +166,7 @@ export class NodeRequest implements Request {
 
   readonly url: string;
   readonly method: string;
+  readonly bodyUsed: boolean;
 
   constructor(req: IncomingMessage) {
     this._req = req;
@@ -152,6 +177,7 @@ export class NodeRequest implements Request {
       (req.headers.host ?? req.headers[':authority']) +
       req.url!;
     this.method = this._req.method!;
+    this.bodyUsed = false;
   }
 
   _abort?: () => void;
@@ -174,47 +200,16 @@ export class NodeRequest implements Request {
     return new NodeRequest(this._req);
   }
 
-  #headers?: TRequestHeaders;
+  #headers?: RequestHeaders;
   get headers(): Headers {
-    return (this.#headers ??= new TRequestHeaders(this._req));
-  }
-
-  #bodyUsed?: boolean;
-  get bodyUsed(): boolean {
-    if (this.#bodyUsed != null) return this.#bodyUsed;
-    if (this._bodyStream?.locked !== true) {
-      const method = this.method;
-      if (
-        method === 'PATCH' ||
-        method === 'POST' ||
-        method === 'PUT' ||
-        method === 'DELETE'
-      ) {
-        const contentLength = this._req.headers['content-length'];
-        if (
-          typeof contentLength === 'string' &&
-          Number.isInteger(+contentLength)
-        )
-          return (this.#bodyUsed = false);
-
-        const transferEncoding = this._req.headers['transfer-encoding'];
-        if (typeof transferEncoding === 'string')
-          for (
-            let i = 0, parts = transferEncoding.split(',');
-            i < parts.length;
-            i++
-          )
-            if (parts[i].trim() === 'chunked') return (this.#bodyUsed = false);
-      }
-    }
-
-    return (this.#bodyUsed = true);
+    return (this.#headers ??= new RequestHeaders(this._req));
   }
 
   _bodyStream?: ReadableStream<Uint8Array<ArrayBuffer>>;
   get body(): ReadableStream<Uint8Array<ArrayBuffer>> | null {
-    if (this._bodyStream != null) return this._bodyStream;
     if (this.bodyUsed) return null;
+    // @ts-ignore Well I can't handle this correctly
+    this.bodyUsed = true;
 
     const bodyStream = this._req;
     if (this._abort != null) bodyStream.once('error', this._abort);
@@ -334,11 +329,13 @@ export const sendResponseAsync = async (
 export const requestIP = (req: NodeRequest): string | undefined =>
   req._req.socket.remoteAddress;
 
-export const serve = (options: ServeOptions, ready?: () => any): Server => {
+export { noop as waitUntil } from './utils.ts';
+
+export const serve = (options: ServeOptions): Server => {
   const { fetch, port, hostname } = options;
 
   return createServer((req, res) => {
     const webRes = fetch(new NodeRequest(req));
     (webRes instanceof Promise ? sendResponseAsync : sendResponse)(res, webRes);
-  }).listen(port, hostname, ready);
+  }).listen(port, hostname);
 };

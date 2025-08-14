@@ -7,5 +7,5 @@ import { serve } from 'winter-compat';
 serve({
   fetch: compile(app),
   port: 3000,
-}, () => console.log('App ready'));
+});
 ```

@@ -1,27 +1,42 @@
-import { describe, expect, test } from 'bun:test';
-import { after } from 'node:test';
+import { afterAll, describe, expect, test } from 'bun:test';
+import { setTimeout } from 'node:timers/promises';
 
-const ARGS = {
-  node: ['--import', 'jiti/register'],
+const PORT = {
+  node: 3000,
+  bun: 3001
+};
+
+const ARGS: Record<keyof typeof PORT, string[]> = {
+  node: [],
+  bun: ['run']
 };
 
 const start = (runtime: keyof typeof ARGS) => {
-  describe(runtime + ' server', async () => {
+  describe(runtime, async () => {
+    const URL = 'http://localhost:' + PORT[runtime];
+
+    // Launch server
     {
-      const label = runtime + ' server started';
+      const label = runtime + ': server started';
       console.time(label);
 
       const server = Bun.spawn([runtime, ...ARGS[runtime], './server.ts'], {
         cwd: import.meta.dir,
+        env: {
+          ...process.env,
+          PORT: PORT[runtime] + ''
+        }
       });
-      after(() => server.kill());
-      // Wait for the first console log
-      await server.stdout.getReader().read();
+      afterAll(() => server.kill());
+
+      // Wait until server starts
+      while ((await fetch(URL).catch(() => {})) == null) {
+        console.log(runtime + ': Pinging', URL + '...');
+        await setTimeout(800);
+      }
 
       console.timeEnd(label);
     }
-
-    const URL = 'http://localhost:3000';
 
     describe('response', () => {
       test('text', async () => {
@@ -83,3 +98,4 @@ const start = (runtime: keyof typeof ARGS) => {
 };
 
 start('node');
+start('bun');

@@ -9,3 +9,5 @@ export const bufferToUint8Array = (
   buf: Buffer<ArrayBuffer>,
 ): Uint8Array<ArrayBuffer> =>
   new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+
+export const noop = (): void => {};
