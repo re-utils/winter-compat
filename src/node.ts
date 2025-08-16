@@ -5,7 +5,6 @@ import {
   type Server,
   type ServerResponse,
 } from 'node:http';
-import { Readable } from 'node:stream';
 import type { RequestHandler, ServeOptions } from './types.ts';
 import {
   joinHeaders,
@@ -123,6 +122,9 @@ export class _NodeRequest implements Request {
   readonly method: string;
   readonly bodyUsed: boolean;
 
+  // Clone should clone the underlying node stream which idk how to do as of rn
+  clone: any;
+
   constructor(req: IncomingMessage) {
     this._req = req;
 
@@ -133,12 +135,14 @@ export class _NodeRequest implements Request {
       req.url!;
     this.method = this._req.method!;
     this.bodyUsed = false;
+
+    this.clone = methodNotImplemented;
   }
 
   _abort?: () => void;
-  #signal?: AbortSignal;
+  _signal?: AbortSignal;
   get signal(): AbortSignal {
-    if (this.#signal != null) return this.#signal;
+    if (this._signal != null) return this._signal;
 
     const controller = new AbortController();
     this._req.once(
@@ -148,11 +152,7 @@ export class _NodeRequest implements Request {
       }),
     );
 
-    return (this.#signal = controller.signal);
-  }
-
-  clone(): Request {
-    return new _NodeRequest(this._req);
+    return (this._signal = controller.signal);
   }
 
   #headers?: _NodeHeaders;
@@ -169,9 +169,24 @@ export class _NodeRequest implements Request {
     this.bodyUsed = true;
 
     const bodyStream = this._req;
-    if (this._abort != null) bodyStream.once('error', this._abort);
 
-    return (this.#bodyStream = Readable.toWeb(bodyStream) as any);
+    if (this._abort != null)
+      bodyStream.once('error', this._abort);
+
+    return this.#bodyStream = new ReadableStream({
+      start: (c) => {
+        bodyStream
+          .on('data', (buf: Buffer<ArrayBuffer>) => {
+            c.enqueue(buf);
+          })
+          .once('end', () => {
+            c.close();
+          })
+          .once('error', (e) => {
+            c.error(e);
+          });
+      }
+    });
   }
 
   async bytes(): Promise<Uint8Array<ArrayBuffer>> {
@@ -227,39 +242,6 @@ notImplementedGetters(
   'referrerPolicy',
 );
 
-export const _sendResponse = (nodeRes: ServerResponse, res: any): void => {
-  if (res instanceof Response) {
-    // Write headers
-    const headers: OutgoingHttpHeader[] = [];
-
-    res.headers.forEach((val, key) => {
-      if (key === 'set-cookie')
-        for (let i = 0, cookies = val.split(', '); i < cookies.length; i++)
-          headers.push(['set-cookie', cookies[i]]);
-      else headers.push([key, val]);
-    });
-
-    nodeRes.writeHead(res.status, res.statusText, headers);
-
-    // Write body
-    if (res.body != null) {
-      if (nodeRes.destroyed) res.body.cancel();
-      else Readable.fromWeb(res.body as any).pipe(nodeRes);
-    } else nodeRes.end();
-  } else {
-    // Matching Bun behavior ig
-    nodeRes.statusCode = 204;
-    nodeRes.end();
-  }
-};
-
-export const _sendResponseAsync = async (
-  nodeRes: ServerResponse,
-  res: Promise<any>,
-): Promise<void> => {
-  _sendResponse(nodeRes, await res);
-};
-
 export const requestIP = (req: Request): string | undefined =>
   (req as _NodeRequest)._req.socket.remoteAddress;
 
@@ -270,12 +252,58 @@ export const serve = (
   options?: ServeOptions,
 ): Promise<Server> =>
   new Promise((resolve) => {
-    const server = createServer((req, res) => {
-      const webRes = fetch(new _NodeRequest(req));
-      (webRes instanceof Promise ? _sendResponseAsync : _sendResponse)(
-        res,
-        webRes,
-      );
+    const server = createServer(async (nodeReq, nodeRes) => {
+      const webReq = new _NodeRequest(nodeReq);
+
+      let webRes = fetch(webReq);
+      if (webRes instanceof Promise) webRes = await webRes;
+
+      if (webRes instanceof Response) {
+        // Write headers
+        const headers: OutgoingHttpHeader[] = [];
+
+        webRes.headers.forEach((val, key) => {
+          if (key === 'set-cookie')
+            for (let i = 0, cookies = val.split(', '); i < cookies.length; i++)
+              headers.push(['set-cookie', cookies[i]]);
+          else headers.push([key, val]);
+        });
+
+        nodeRes.writeHead(webRes.status, webRes.statusText, headers);
+
+        // Write body
+        if (webRes.body != null) {
+          const webBodyReader = webRes.body.getReader();
+
+          try {
+            while (true) {
+              const it = await webBodyReader.read();
+
+              // Can't continue writing
+              if (nodeRes.destroyed) {
+                webRes.body.cancel();
+                return;
+              }
+
+              if (it.done) {
+                nodeRes.end(it.value);
+                return;
+              }
+
+              nodeRes.write(it.value);
+            }
+          } catch (e) {
+            nodeRes.destroy();
+            return Promise.reject(e);
+          }
+        }
+
+        nodeRes.end();
+      } else {
+        // Matching Bun behavior ig
+        nodeRes.statusCode = 204;
+        nodeRes.end();
+      }
     }).listen(options?.port ?? 3000, options?.hostname ?? '127.0.0.1', () =>
       resolve(server),
     );

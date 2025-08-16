@@ -108,6 +108,8 @@ export class _uRequest implements Request {
   readonly url: string;
   readonly bodyUsed: boolean;
 
+  clone: any;
+
   constructor(res: HttpResponse, req: HttpRequest) {
     this._res = res;
     this._req = req;
@@ -129,10 +131,8 @@ export class _uRequest implements Request {
       // @ts-ignore
       this._aborted = true;
     });
-  }
 
-  clone(): Request {
-    return new _uRequest(this._res, this._req);
+    this.clone = methodNotImplemented;
   }
 
   #headers?: _uHeaders;
