@@ -234,11 +234,7 @@ export const _sendResponse = (nodeRes: ServerResponse, res: any): void => {
 
     res.headers.forEach((val, key) => {
       if (key === 'set-cookie')
-        for (
-          let i = 0, cookies = val.split(', ');
-          i < cookies.length;
-          i++
-        )
+        for (let i = 0, cookies = val.split(', '); i < cookies.length; i++)
           headers.push(['set-cookie', cookies[i]]);
       else headers.push([key, val]);
     });

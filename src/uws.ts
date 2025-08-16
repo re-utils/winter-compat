@@ -284,18 +284,14 @@ export const serve = (
                 res.write(it.value);
                 it = await reader.read();
               }
-
-              res.end();
             } catch (e) {
               // Abort on error
               res.close();
               return Promise.reject(e);
             }
-          } else res.end();
-        } else {
-          res.writeStatus('204 No Content');
-          res.end();
-        }
+          }
+        } else res.writeStatus('204 No Content');
+        res.end();
       })
       .listen(host, port, (s) => {
         s === false
