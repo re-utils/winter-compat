@@ -19,6 +19,7 @@
       "node": "./node.js",
       "bun": "./bun.js"
     },
+    "./uws": "./uws.js",
     "./utils": "./utils.js",
     "./config": "./config.js"
   },
@@ -33,10 +34,10 @@
     "oxc-minify": "^0.64.0",
     "oxc-transform": "^0.65.0",
     "typescript": "^5.9.2",
-    "winter-compat-build": "./lib"
+    "udic": "^1.2.2"
   },
   "optionalDependencies": {
-    "uWebSockets": "git+https://github.com/uNetworking/uWebSockets.js.git"
+    "uWebSockets.js": "uNetworking/uWebSockets.js#v20.52.0"
   },
   "trustedDependencies": [
     "@biomejs/biome"

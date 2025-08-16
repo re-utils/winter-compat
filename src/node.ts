@@ -6,98 +6,53 @@ import {
   type ServerResponse,
 } from 'node:http';
 import { Readable } from 'node:stream';
-import config from './config.ts';
-import type { ServeOptions } from './types.ts';
+import type { RequestHandler, ServeOptions } from './types.ts';
 import {
-  bufferToUint8Array,
   joinHeaders,
   methodNotImplemented,
+  notImplementedGetters,
+  useRequestBody,
 } from './utils.ts';
 
-const EMPTY_BUF = Buffer.allocUnsafe(0);
+export const _readBody = (
+  req: _NodeRequest,
+): Promise<Buffer<ArrayBuffer>[]> => {
+  useRequestBody(req);
+  return new Promise((res, rej) => {
+    const chunks: any[] = [];
+    const bodyStream = req._req;
 
-export const readBody = (
-  req: NodeRequest,
-): Promise<Buffer<ArrayBuffer>> | Buffer<ArrayBuffer> => {
-  // Similar error to undici
-  if (req.bodyUsed)
-    throw new TypeError('Body is unusable: Body has already been read');
-  // @ts-ignore
-  req.bodyUsed = true;
+    req._abort != null && bodyStream.once('error', req._abort);
 
-  return hasBody(req)
-    ? new Promise<Buffer<ArrayBuffer>>((res, rej) => {
-        let size = 0;
-
-        const chunks: any[] = [];
-        const bodyStream = req._req;
-
-        if (req._abort != null) bodyStream.once('error', req._abort);
-
-        bodyStream
-          .on('data', (chunk) => {
-            if ((size += chunk.byteLength) <= config.maxRequestBodySize)
-              chunks.push(chunk);
-            else res(EMPTY_BUF);
-          })
-          .once('end', () => {
-            res(Buffer.concat(chunks));
-          })
-          .once('error', rej);
+    bodyStream
+      .on('data', (chunk) => {
+        chunks.push(chunk);
       })
-    : EMPTY_BUF;
+      .once('end', () => {
+        res(chunks);
+      })
+      .once('error', rej);
+  });
 };
 
-export const hasBody = (req: NodeRequest): boolean => {
-  const method = req.method;
-  if (
-    method === 'PATCH' ||
-    method === 'POST' ||
-    method === 'PUT' ||
-    method === 'DELETE'
-  ) {
-    const contentLength = req._req.headers['content-length'];
-    if (typeof contentLength === 'string' && Number.isInteger(+contentLength))
-      return true;
-
-    const transferEncoding = req._req.headers['transfer-encoding'];
-    if (typeof transferEncoding === 'string')
-      for (
-        let i = 0, parts = transferEncoding.split(',');
-        i < parts.length;
-        i++
-      )
-        if (parts[i].trim() === 'chunked') return true;
-  }
-
-  return false;
-};
-
-export class RequestHeaders implements Headers {
+export class _NodeHeaders implements Headers {
   _req: IncomingMessage;
 
+  // Absolutely no modifying the request headers
   getSetCookie: any;
   set: any;
   count: any;
+  append: any;
+  delete: any;
 
   constructor(req: IncomingMessage) {
     this._req = req;
-    this.set = this.getSetCookie = this.count = methodNotImplemented;
-  }
-
-  append(name: string, value: string): void {
-    name = name.toLowerCase();
-
-    const headers = this._req.headers;
-    const cur = headers[name];
-
-    if (typeof cur === 'string') headers[name] = [cur as string, value];
-    else if (typeof cur === 'undefined') headers[name] = value;
-    else cur.push(value);
-  }
-
-  delete(name: string): void {
-    delete this._req.headers[name.toLowerCase()];
+    this.set =
+      this.append =
+      this.delete =
+      this.getSetCookie =
+      this.count =
+        methodNotImplemented;
   }
 
   get(name: string): string | null {
@@ -161,7 +116,7 @@ export class RequestHeaders implements Headers {
   }
 }
 
-export class NodeRequest implements Request {
+export class _NodeRequest implements Request {
   readonly _req: IncomingMessage;
 
   readonly url: string;
@@ -197,16 +152,18 @@ export class NodeRequest implements Request {
   }
 
   clone(): Request {
-    return new NodeRequest(this._req);
+    return new _NodeRequest(this._req);
   }
 
-  #headers?: RequestHeaders;
+  #headers?: _NodeHeaders;
   get headers(): Headers {
-    return (this.#headers ??= new RequestHeaders(this._req));
+    return (this.#headers ??= new _NodeHeaders(this._req));
   }
 
-  _bodyStream?: ReadableStream<Uint8Array<ArrayBuffer>>;
+  #bodyStream?: ReadableStream<Uint8Array<ArrayBuffer>>;
   get body(): ReadableStream<Uint8Array<ArrayBuffer>> | null {
+    if (this.#bodyStream != null) return this.#bodyStream;
+
     if (this.bodyUsed) return null;
     // @ts-ignore Well I can't handle this correctly
     this.bodyUsed = true;
@@ -214,84 +171,63 @@ export class NodeRequest implements Request {
     const bodyStream = this._req;
     if (this._abort != null) bodyStream.once('error', this._abort);
 
-    return (this._bodyStream = Readable.toWeb(bodyStream) as any);
+    return (this.#bodyStream = Readable.toWeb(bodyStream) as any);
   }
 
   async bytes(): Promise<Uint8Array<ArrayBuffer>> {
-    return bufferToUint8Array(await readBody(this));
+    return new Uint8Array(Buffer.concat(await _readBody(this)));
   }
 
   async arrayBuffer(): Promise<ArrayBuffer> {
-    return (await readBody(this)).buffer;
+    return Buffer.concat(await _readBody(this)).buffer;
   }
 
   async blob(): Promise<Blob> {
-    return new Blob([await readBody(this)], {
+    return new Blob(await _readBody(this), {
       type: this._req.headers['content-type'],
     });
   }
 
   async formData(): Promise<FormData> {
-    return new Response(await readBody(this), {
+    return new Response(Buffer.concat(await _readBody(this)), {
       headers: this._req.headers as Record<string, string>,
     }).formData();
   }
 
-  async json(): Promise<any> {
-    return JSON.parse((await readBody(this)).toString());
+  async json<T>(): Promise<T> {
+    return JSON.parse(Buffer.concat(await _readBody(this)).toString());
   }
 
   async text(): Promise<string> {
-    return (await readBody(this)).toString();
+    return Buffer.concat(await _readBody(this)).toString();
   }
 
-  // @ts-ignore
-  get cache(): RequestCache {
-    methodNotImplemented();
-  }
-
-  // @ts-ignore
-  get credentials(): RequestCredentials {
-    methodNotImplemented();
-  }
-
-  // @ts-ignore
-  get destination(): RequestDestination {
-    methodNotImplemented();
-  }
-
-  // @ts-ignore
-  get integrity(): string {
-    methodNotImplemented();
-  }
-
-  // @ts-ignore
-  get keepalive(): boolean {
-    methodNotImplemented();
-  }
-
-  // @ts-ignore
-  get mode(): RequestMode {
-    methodNotImplemented();
-  }
-
-  // @ts-ignore
-  get redirect(): RequestRedirect {
-    methodNotImplemented();
-  }
-
-  // @ts-ignore
-  get referrer(): string {
-    methodNotImplemented();
-  }
-
-  // @ts-ignore
-  get referrerPolicy(): ReferrerPolicy {
-    methodNotImplemented();
-  }
+  // Umimplemented
+  declare readonly cache: RequestCache;
+  declare readonly credentials: RequestCredentials;
+  declare readonly destination: RequestDestination;
+  declare readonly integrity: string;
+  declare readonly keepalive: boolean;
+  declare readonly mode: RequestMode;
+  declare readonly redirect: RequestRedirect;
+  declare readonly referrer: string;
+  declare readonly referrerPolicy: ReferrerPolicy;
 }
 
-export const sendResponse = (nodeRes: ServerResponse, res: any): void => {
+notImplementedGetters(
+  _NodeRequest,
+  'cache',
+  'credentials',
+  'destination',
+  'integrity',
+  'keepalive',
+  'mode',
+  'redirect',
+  'referrer',
+  'referrerPolicy',
+);
+
+export const _sendResponse = (nodeRes: ServerResponse, res: any): void => {
   if (res instanceof Response) {
     // Write headers
     const headers: OutgoingHttpHeader[] = [];
@@ -319,23 +255,30 @@ export const sendResponse = (nodeRes: ServerResponse, res: any): void => {
   }
 };
 
-export const sendResponseAsync = async (
+export const _sendResponseAsync = async (
   nodeRes: ServerResponse,
   res: Promise<any>,
 ): Promise<void> => {
-  sendResponse(nodeRes, await res);
+  _sendResponse(nodeRes, await res);
 };
 
-export const requestIP = (req: NodeRequest): string | undefined =>
-  req._req.socket.remoteAddress;
+export const requestIP = (req: Request): string | undefined =>
+  (req as _NodeRequest)._req.socket.remoteAddress;
 
 export { noop as waitUntil } from './utils.ts';
 
-export const serve = (options: ServeOptions): Server => {
-  const { fetch, port, hostname } = options;
-
-  return createServer((req, res) => {
-    const webRes = fetch(new NodeRequest(req));
-    (webRes instanceof Promise ? sendResponseAsync : sendResponse)(res, webRes);
-  }).listen(port, hostname);
-};
+export const serve = (
+  fetch: RequestHandler,
+  options?: ServeOptions,
+): Promise<Server> =>
+  new Promise((resolve) => {
+    const server = createServer((req, res) => {
+      const webRes = fetch(new _NodeRequest(req));
+      (webRes instanceof Promise ? _sendResponseAsync : _sendResponse)(
+        res,
+        webRes,
+      );
+    }).listen(options?.port ?? 3000, options?.hostname ?? '127.0.0.1', () =>
+      resolve(server),
+    );
+  });
