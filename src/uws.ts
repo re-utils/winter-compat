@@ -261,7 +261,7 @@ export const serve = (
           webRes.headers.forEach((val, key) => {
             if (key === 'set-cookie')
               for (
-                let i = 0, cookies = webRes.headers.getSetCookie();
+                let i = 0, cookies = val.split(', ');
                 i < cookies.length;
                 i++
               )

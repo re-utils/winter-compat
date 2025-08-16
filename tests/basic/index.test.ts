@@ -64,36 +64,48 @@ const start = (runtime: keyof typeof ARGS) => {
         expect(res.status).toBe(200);
         expect(await res.text()).toBeOneOf(['::1', '127.0.0.1']);
       });
+
+      describe('headers', () => {
+        test('set cookie', async () => {
+          const res = await fetch(URL + '/set-cookie');
+          expect(res.status).toBe(200);
+          expect(res.headers.getSetCookie()).toContainAllValues(['c=d', 'a=b']);
+        });
+      });
     });
 
-    describe('read body', () => {
-      test('json', async () => {
-        const json = {
-          name: 'admin',
-          pwd: 'admin',
-        };
+    describe('request', () => {
+      describe('body', () => {
+        test('json', async () => {
+          const json = {
+            name: 'admin',
+            pwd: 'admin',
+          };
 
-        const res = await fetch(URL + '/json', {
-          method: 'POST',
-          body: JSON.stringify(json),
+          const res = await fetch(URL + '/json', {
+            method: 'POST',
+            body: JSON.stringify(json),
+          });
+
+          expect(res.status).toBe(200);
+          expect(res.headers.get('content-type')).toStartWith(
+            'application/json',
+          );
+          expect(await res.json()).toEqual(json);
         });
 
-        expect(res.status).toBe(200);
-        expect(res.headers.get('content-type')).toStartWith('application/json');
-        expect(await res.json()).toEqual(json);
-      });
+        test('formdata', async () => {
+          const form = new FormData();
+          form.append('name', 'admin');
 
-      test('formdata', async () => {
-        const form = new FormData();
-        form.append('name', 'admin');
+          const res = await fetch(URL + '/form', {
+            method: 'POST',
+            body: form,
+          });
 
-        const res = await fetch(URL + '/form', {
-          method: 'POST',
-          body: form,
+          expect(res.status).toBe(200);
+          expect(await res.text()).toEqual('admin');
         });
-
-        expect(res.status).toBe(200);
-        expect(await res.text()).toEqual('admin');
       });
     });
   });

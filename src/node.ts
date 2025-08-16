@@ -231,16 +231,18 @@ export const _sendResponse = (nodeRes: ServerResponse, res: any): void => {
   if (res instanceof Response) {
     // Write headers
     const headers: OutgoingHttpHeader[] = [];
-    for (const pair of res.headers.entries()) {
-      if (pair[0] === 'set-cookie')
+
+    res.headers.forEach((val, key) => {
+      if (key === 'set-cookie')
         for (
-          let i = 0, cookies = res.headers.getSetCookie();
+          let i = 0, cookies = val.split(', ');
           i < cookies.length;
           i++
         )
           headers.push(['set-cookie', cookies[i]]);
-      else headers.push(pair);
-    }
+      else headers.push([key, val]);
+    });
+
     nodeRes.writeHead(res.status, res.statusText, headers);
 
     // Write body
