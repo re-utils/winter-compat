@@ -19,13 +19,13 @@ export const _readBody = (
 ): Promise<Buffer<ArrayBuffer>[]> => {
   useRequestBody(req);
   return new Promise((res, rej) => {
-    const chunks: any[] = [];
+    const chunks: Buffer<ArrayBuffer>[] = [];
     const bodyStream = req._req;
 
     req._abort != null && bodyStream.once('error', req._abort);
 
     bodyStream
-      .on('data', (chunk) => {
+      .on('data', (chunk: Buffer<ArrayBuffer>) => {
         chunks.push(chunk);
       })
       .once('end', () => {
