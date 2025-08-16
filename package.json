@@ -1,9 +1,12 @@
 {
   "name": "winter-compat",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Small compability layer for frameworks",
   "keywords": [],
-  "repository": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/re-utils/winter-compat.git"
+  },
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -17,8 +20,12 @@
     ".": {
       "types": "./types.d.ts",
       "node": "./node.js",
-      "bun": "./bun.js"
+      "bun": "./bun.js",
+      "deno": "./deno.js"
     },
+    "./node": "./node.js",
+    "./bun": "./bun.js",
+    "./deno": "./deno.js",
     "./uws": "./uws.js",
     "./utils": "./utils.js",
     "./config": "./config.js"

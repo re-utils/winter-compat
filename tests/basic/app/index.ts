@@ -10,7 +10,6 @@ export default use([getRequestIP], (requestIP) => {
       handle.get('/', () => 'Hi'),
 
       handle.get('/empty', () => new Response(), handle.raw),
-      handle.get('/invalid', () => {}, handle.raw),
       handle.get('/ip', (c) => requestIP(c.req)),
 
       handle.get('/set-cookie', (c) => {

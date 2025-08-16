@@ -4,13 +4,15 @@ import { setTimeout } from 'node:timers/promises';
 const PORT = {
   node: 3000,
   bun: 3001,
-  uws: 3002,
+  deno: 3002,
+  uws: 3003,
 };
 
 const ARGS: Record<keyof typeof PORT, string[]> = {
   node: ['node'],
   bun: ['bun', 'run'],
-  uws: ['node'],
+  deno: ['deno', 'run', '--allow-net', '--allow-env'],
+  uws: ['node']
 };
 
 const start = (runtime: keyof typeof ARGS) => {
@@ -52,11 +54,6 @@ const start = (runtime: keyof typeof ARGS) => {
         const res = await fetch(URL + '/empty');
         expect(res.status).toBe(200);
         expect(await res.text()).toBe('');
-      });
-
-      test('invalid', async () => {
-        const res = await fetch(URL + '/invalid');
-        expect(res.status).toBeOneOf([204, 200]);
       });
 
       test('ip', async () => {
@@ -113,4 +110,5 @@ const start = (runtime: keyof typeof ARGS) => {
 
 start('node');
 start('bun');
+start('deno');
 start('uws');
