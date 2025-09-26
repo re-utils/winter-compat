@@ -3,7 +3,6 @@ import {
   type IncomingMessage,
   type OutgoingHttpHeader,
   type Server,
-  type ServerResponse,
 } from 'node:http';
 import type { RequestHandler, ServeOptions } from './types.ts';
 import {
@@ -19,7 +18,7 @@ export const _readBody = (
   useRequestBody(req);
   return new Promise((res, rej) => {
     const chunks: Buffer<ArrayBuffer>[] = [];
-    const bodyStream = req._req;
+    const bodyStream = req._;
 
     req._abort != null && bodyStream.once('error', req._abort);
 
@@ -35,7 +34,7 @@ export const _readBody = (
 };
 
 export class _NodeHeaders implements Headers {
-  _req: IncomingMessage;
+  _: IncomingMessage;
 
   // Absolutely no modifying the request headers
   getSetCookie: any;
@@ -45,7 +44,7 @@ export class _NodeHeaders implements Headers {
   delete: any;
 
   constructor(req: IncomingMessage) {
-    this._req = req;
+    this._ = req;
     this.set =
       this.append =
       this.delete =
@@ -57,7 +56,7 @@ export class _NodeHeaders implements Headers {
   get(name: string): string | null {
     name = name.toLowerCase();
 
-    const val = this._req.headers[name];
+    const val = this._.headers[name];
     if (val == null) return null;
     if (typeof val === 'string') return val;
 
@@ -65,16 +64,16 @@ export class _NodeHeaders implements Headers {
   }
 
   getAll(name: string): string[] {
-    const val = this._req.headers[name.toLowerCase()];
+    const val = this._.headers[name.toLowerCase()];
     return val == null ? [] : typeof val === 'string' ? [val] : val;
   }
 
   has(name: string): boolean {
-    return name.toLowerCase() in this._req.headers;
+    return name.toLowerCase() in this._.headers;
   }
 
   toJSON(): Record<string, string> {
-    const headers = this._req.headers;
+    const headers = this._.headers;
     const result: Record<string, string> = {};
     for (const key in headers)
       if (headers[key] != null) result[key] = joinHeaders(headers[key]);
@@ -85,25 +84,25 @@ export class _NodeHeaders implements Headers {
     cb: (value: string, key: string, parent: Headers) => void,
     thisArg?: any,
   ): void {
-    const headers = this._req.headers;
+    const headers = this._.headers;
     for (const key in headers)
       if (headers[key] != null)
         cb.call(thisArg, joinHeaders(headers[key]), key, this as any);
   }
 
   *keys(): HeadersIterator<string> {
-    const vals = Object.keys(this._req.headers);
+    const vals = Object.keys(this._.headers);
     for (let i = 0; i < vals.length; i++) if (vals[i][0] !== ':') yield vals[i];
   }
 
   *values(): HeadersIterator<string> {
-    const vals = Object.values(this._req.headers);
+    const vals = Object.values(this._.headers);
     for (let i = 0; i < vals.length; i++)
       if (vals[i] != null) yield joinHeaders(vals[i]!);
   }
 
   *entries(): HeadersIterator<[string, string]> {
-    const headers = this._req.headers;
+    const headers = this._.headers;
 
     for (const key in headers) {
       if (headers[key] != null) yield [key, joinHeaders(headers[key])];
@@ -116,7 +115,7 @@ export class _NodeHeaders implements Headers {
 }
 
 export class _NodeRequest implements Request {
-  readonly _req: IncomingMessage;
+  readonly _: IncomingMessage;
 
   readonly url: string;
   readonly method: string;
@@ -126,14 +125,14 @@ export class _NodeRequest implements Request {
   clone: any;
 
   constructor(req: IncomingMessage) {
-    this._req = req;
+    this._ = req;
 
     // Don't lazy load common stuff
     this.url =
       (req.headers['x-forwarded-proto'] === 'https' ? 'https://' : 'http://') +
       (req.headers.host ?? req.headers[':authority']) +
       req.url!;
-    this.method = this._req.method!;
+    this.method = this._.method!;
     this.bodyUsed = false;
 
     this.clone = methodNotImplemented;
@@ -145,7 +144,7 @@ export class _NodeRequest implements Request {
     if (this._signal != null) return this._signal;
 
     const controller = new AbortController();
-    this._req.once(
+    this._.once(
       'close',
       (this._abort = () => {
         controller.abort();
@@ -157,7 +156,7 @@ export class _NodeRequest implements Request {
 
   #headers?: _NodeHeaders;
   get headers(): Headers {
-    return (this.#headers ??= new _NodeHeaders(this._req));
+    return (this.#headers ??= new _NodeHeaders(this._));
   }
 
   #bodyStream?: ReadableStream<Uint8Array<ArrayBuffer>>;
@@ -168,7 +167,7 @@ export class _NodeRequest implements Request {
     // @ts-ignore Well I can't handle this correctly
     this.bodyUsed = true;
 
-    const bodyStream = this._req;
+    const bodyStream = this._;
 
     if (this._abort != null)
       bodyStream.once('error', this._abort);
@@ -199,13 +198,13 @@ export class _NodeRequest implements Request {
 
   async blob(): Promise<Blob> {
     return new Blob(await _readBody(this), {
-      type: this._req.headers['content-type'],
+      type: this._.headers['content-type'],
     });
   }
 
   async formData(): Promise<FormData> {
     return new Response(Buffer.concat(await _readBody(this)), {
-      headers: this._req.headers as Record<string, string>,
+      headers: this._.headers as Record<string, string>,
     }).formData();
   }
 
@@ -243,7 +242,7 @@ notImplementedGetters(
 );
 
 export const requestIP = (req: Request): string | undefined =>
-  (req as _NodeRequest)._req.socket.remoteAddress;
+  (req as _NodeRequest)._.socket.remoteAddress;
 
 export { noop as waitUntil } from './utils.ts';
 

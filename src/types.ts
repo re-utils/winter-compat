@@ -8,6 +8,6 @@ export interface ServeOptions {
 export declare const serve: (
   fetch: RequestHandler,
   options?: ServeOptions,
-) => any;
+) => unknown;
 export declare const requestIP: (req: Request) => string | undefined;
 export declare const waitUntil: (promise: Promise<any>) => void;
