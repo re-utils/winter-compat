@@ -12,7 +12,7 @@ const ARGS: Record<keyof typeof PORT, string[]> = {
   node: ['node'],
   bun: ['bun', 'run'],
   deno: ['deno', 'run', '--allow-net', '--allow-env'],
-  uws: ['node']
+  uws: ['node'],
 };
 
 const start = (runtime: keyof typeof ARGS) => {

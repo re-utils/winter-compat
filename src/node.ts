@@ -169,10 +169,9 @@ export class _NodeRequest implements Request {
 
     const bodyStream = this._;
 
-    if (this._abort != null)
-      bodyStream.once('error', this._abort);
+    if (this._abort != null) bodyStream.once('error', this._abort);
 
-    return this.#bodyStream = new ReadableStream({
+    return (this.#bodyStream = new ReadableStream({
       start: (c) => {
         bodyStream
           .on('data', (buf: Buffer<ArrayBuffer>) => {
@@ -184,8 +183,8 @@ export class _NodeRequest implements Request {
           .once('error', (e) => {
             c.error(e);
           });
-      }
-    });
+      },
+    }));
   }
 
   async bytes(): Promise<Uint8Array<ArrayBuffer>> {
@@ -246,64 +245,57 @@ export const requestIP = (req: Request): string | undefined =>
 
 export { noop as waitUntil } from './utils.ts';
 
-export const serve = (
-  fetch: RequestHandler,
-  options?: ServeOptions,
-): Promise<Server> =>
-  new Promise((resolve) => {
-    const server = createServer(async (nodeReq, nodeRes) => {
-      const webReq = new _NodeRequest(nodeReq);
+export const serve = (fetch: RequestHandler, options?: ServeOptions): Server =>
+  createServer(async (nodeReq, nodeRes) => {
+    const webReq = new _NodeRequest(nodeReq);
 
-      let webRes = fetch(webReq);
-      if (webRes instanceof Promise) webRes = await webRes;
+    let webRes = fetch(webReq);
+    if (webRes instanceof Promise) webRes = await webRes;
 
-      if (webRes instanceof Response) {
-        // Write headers
-        const headers: OutgoingHttpHeader[] = [];
+    if (webRes instanceof Response) {
+      // Write headers
+      const headers: OutgoingHttpHeader[] = [];
 
-        webRes.headers.forEach((val, key) => {
-          if (key === 'set-cookie')
-            for (let i = 0, cookies = val.split(', '); i < cookies.length; i++)
-              headers.push(['set-cookie', cookies[i]]);
-          else headers.push([key, val]);
-        });
+      webRes.headers.forEach((val, key) => {
+        if (key === 'set-cookie')
+          for (let i = 0, cookies = val.split(', '); i < cookies.length; i++)
+            headers.push(['set-cookie', cookies[i]]);
+        else headers.push([key, val]);
+      });
 
-        nodeRes.writeHead(webRes.status, webRes.statusText, headers);
+      nodeRes.writeHead(webRes.status, webRes.statusText, headers);
 
-        // Write body
-        if (webRes.body != null) {
-          const webBodyReader = webRes.body.getReader();
+      // Write body
+      if (webRes.body != null) {
+        const webBodyReader = webRes.body.getReader();
 
-          try {
-            while (true) {
-              const it = await webBodyReader.read();
+        try {
+          while (true) {
+            const it = await webBodyReader.read();
 
-              // Can't continue writing
-              if (nodeRes.destroyed) {
-                webRes.body.cancel();
-                return;
-              }
-
-              if (it.done) {
-                nodeRes.end(it.value);
-                return;
-              }
-
-              nodeRes.write(it.value);
+            // Can't continue writing
+            if (nodeRes.destroyed) {
+              webRes.body.cancel();
+              return;
             }
-          } catch (e) {
-            nodeRes.destroy();
-            return Promise.reject(e);
-          }
-        }
 
-        nodeRes.end();
-      } else {
-        // Matching Bun behavior ig
-        nodeRes.statusCode = 204;
-        nodeRes.end();
+            if (it.done) {
+              nodeRes.end(it.value);
+              return;
+            }
+
+            nodeRes.write(it.value);
+          }
+        } catch (e) {
+          nodeRes.destroy();
+          return Promise.reject(e);
+        }
       }
-    }).listen(options?.port ?? 3000, options?.hostname ?? '127.0.0.1', () =>
-      resolve(server),
-    );
-  });
+
+      nodeRes.end();
+    } else {
+      // Matching Bun behavior ig
+      nodeRes.statusCode = 204;
+      nodeRes.end();
+    }
+  }).listen(options?.port ?? 3000, options?.hostname ?? '127.0.0.1');
